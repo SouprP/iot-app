@@ -22,8 +22,8 @@ public class DoorSensorDataController {
         return service.getLatest(amount);
     }
 
-    @PostMapping
-    public DoorSensorData create(@RequestBody DoorSensorData data) {
-        return service.save(data);
-    }
+//    @PostMapping
+//    public DoorSensorData create(@RequestBody DoorSensorData data) {
+//        return service.save(data);
+//    }
 }

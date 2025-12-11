@@ -22,8 +22,8 @@ public class ThermostatDataController {
         return service.getLatest(amount);
     }
 
-    @PostMapping
-    public ThermostatData create(@RequestBody ThermostatData data) {
-        return service.save(data);
-    }
+//    @PostMapping
+//    public ThermostatData create(@RequestBody ThermostatData data) {
+//        return service.save(data);
+//    }
 }

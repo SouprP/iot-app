@@ -21,9 +21,9 @@ public class Co2SensorDataController {
     public List<Co2SensorDataDto> getAll(@RequestParam(defaultValue = "20") int amount) {
         return service.getLatest(amount);
     }
-
-    @PostMapping
-    public Co2SensorData create(@RequestBody Co2SensorData data) {
-        return service.save(data);
-    }
+//
+//    @PostMapping
+//    public Co2SensorData create(@RequestBody Co2SensorData data) {
+//        return service.save(data);
+//    }
 }

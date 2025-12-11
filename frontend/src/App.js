@@ -9,7 +9,7 @@ function App() {
   const [doorData, setDoorData] = useState(null);
   const [thermostatData, setThermostatData] = useState({
     heater: false,
-    setPoint: 20
+    setPoint: 20.0
   });
 
   const API_BASE_URL = 'http://localhost:8080';
@@ -20,58 +20,106 @@ function App() {
     };
     
     fetchData();
-    const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
+    fetchCurrentSetpoint(); 
 
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
 
+  const fetchCurrentSetpoint = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/setpoint`);
+      const val = response.data;
+      if (typeof val === 'number') {
+        setThermostatData(prev => ({ ...prev, setPoint: val }));
+      } else {
+        console.warn('Unexpected setpoint format:', val);
+      }
+    } catch (error) {
+      console.error('Error fetching setpoint:', error);
+    }
+  };
+
+  const updateSetpoint = async (newSetpoint) => {
+    try {
+      const floatValue = parseFloat(newSetpoint);
+      setThermostatData(prev => ({ ...prev, setPoint: floatValue }));
+      await axios.post(`${API_BASE_URL}/api/setpoint`, {
+        desiredSetpoint: floatValue 
+      });
+    } catch (error) {
+      console.error('Error updating setpoint:', error);
+      fetchCurrentSetpoint();
+    }
+  };
+
+  const handleSetpointChange = (change) => {
+    const current = parseFloat(thermostatData.setPoint);
+    const newVal = Math.round((current + change) * 10) / 10;
+    updateSetpoint(newVal);
+  };
+
   const fetchAllData = async () => {
     try {
-      // Fetch thermostat data
+      // 1. Fetch thermostat data
       const thermostatResponse = await axios.get(`${API_BASE_URL}/api/thermostat?amount=12`);
-      const thermostatArray = thermostatResponse.data;
+      const thermostatArray = thermostatResponse.data; 
       
-      // Fetch CO2 sensor data (latest reading)
-      const co2Response = await axios.get(`${API_BASE_URL}/api/co2?amount=1`);
-      if (co2Response.data && co2Response.data.length > 0) {
-        setCo2Data(co2Response.data[0]);
+      // 2. Fetch CO2 sensor data
+      const co2Response = await axios.get(`${API_BASE_URL}/api/co2?amount=12`);
+      const co2Array = co2Response.data;
+
+      if (co2Array && co2Array.length > 0) {
+        setCo2Data(co2Array[0]);
       }
       
-      // Fetch door sensor data (latest reading)
+      // 3. Fetch door sensor data
       const doorResponse = await axios.get(`${API_BASE_URL}/api/door?amount=1`);
       if (doorResponse.data && doorResponse.data.length > 0) {
         setDoorData(doorResponse.data[0]);
       }
       
-      // Set latest thermostat state
       if (thermostatArray.length > 0) {
-        setThermostatData({
-          heater: thermostatArray[0].heater,
-          setPoint: thermostatArray[0].setPoint
-        });
+        const isHeaterOn = thermostatArray[0].heater;
+        setThermostatData(prev => ({
+          ...prev,
+          heater: isHeaterOn
+        }));
       }
       
-      // Create array for last 60 seconds (12 data points at 5s intervals)
       const fullTimeRange = [];
       for (let i = 0; i < 12; i++) {
-        const timeInSeconds = (11 - i) * 5; // Reverse: 55s, 50s, 45s... 5s, 0s
+        const timeInSeconds = (11 - i) * 5; 
         fullTimeRange.push({
           timeLabel: `${timeInSeconds}s`,
           timeValue: timeInSeconds,
-          setpoint: null
+          setpoint: null,
+          temperature: null,
+          humidity: null,
+          co2: null   
         });
       }
       
-      // Fill in actual data points from the end (reverse order since API returns DESC)
-      const dataCount = thermostatArray.length;
-      thermostatArray.reverse().forEach((item, index) => {
-        const position = 12 - dataCount + index;
+      // Map Thermostat
+      const chartThermostatData = [...thermostatArray].reverse(); 
+      const thermCount = chartThermostatData.length;
+      chartThermostatData.forEach((item, index) => {
+        const position = 12 - thermCount + index;
         if (position >= 0 && position < 12) {
-          fullTimeRange[position] = {
-            timeLabel: fullTimeRange[position].timeLabel,
-            timeValue: fullTimeRange[position].timeValue,
-            setpoint: item.setPoint
-          };
+          fullTimeRange[position].setpoint = item.setPoint;
+        }
+      });
+
+      // Map CO2 / Humidity / Temperature
+      const chartCo2Data = [...co2Array].reverse();
+      const co2Count = chartCo2Data.length;
+      
+      chartCo2Data.forEach((item, index) => {
+        const position = 12 - co2Count + index;
+        if (position >= 0 && position < 12) {
+          fullTimeRange[position].temperature = item.temperatureC;
+          fullTimeRange[position].humidity = item.humidityRh;
+          fullTimeRange[position].co2 = item.co2Ppm;
         }
       });
       
@@ -110,6 +158,7 @@ function App() {
                 content={({ active, payload }) => {
                   if (active && payload && payload.length) {
                     const data = payload[0].payload;
+                    
                     return (
                       <div style={{
                         backgroundColor: 'white',
@@ -119,22 +168,17 @@ function App() {
                       }}>
                         {payload.map((entry, index) => (
                           <div key={index} style={{ color: entry.color }}>
-                            {entry.name}: {entry.value !== null ? entry.value : 'No data'}
+                            {entry.name}: {entry.value !== null ? entry.value : '--'}
                           </div>
                         ))}
-                        {co2Data && (
-                          <>
-                            <div style={{ color: '#ff7300', marginTop: '5px' }}>
-                              Temperature: {co2Data.temperatureC}°C
-                            </div>
-                            <div style={{ color: '#8b5cf6' }}>
-                              Humidity: {co2Data.humidityRh}%
-                            </div>
-                            <div style={{ color: '#06b6d4' }}>
-                              CO2: {co2Data.co2Ppm} ppm
-                            </div>
-                          </>
-                        )}
+
+                        <div style={{ color: '#8b5cf6', marginTop: '5px' }}>
+                           Humidity: {data.humidity != null ? `${data.humidity}%` : '--'}
+                        </div>
+
+                        <div style={{ color: '#06b6d4' }}>
+                           CO2: {data.co2 != null ? `${data.co2} ppm` : '--'}
+                        </div>
                       </div>
                     );
                   }
@@ -148,6 +192,7 @@ function App() {
                   const { payload } = props;
                   return (
                     <div style={{ textAlign: 'center' }}>
+                      {/* Lines Legend */}
                       {payload.map((entry, index) => (
                         <span key={`item-${index}`} style={{ marginRight: '20px', color: entry.color }}>
                           <span style={{ 
@@ -163,17 +208,6 @@ function App() {
                       ))}
                       {co2Data && (
                         <>
-                          <span style={{ marginRight: '20px', color: '#ff7300' }}>
-                            <span style={{ 
-                              display: 'inline-block', 
-                              width: '12px', 
-                              height: '12px', 
-                              backgroundColor: '#ff7300',
-                              marginRight: '5px',
-                              verticalAlign: 'middle'
-                            }}></span>
-                            Temp: {co2Data.temperatureC}°C
-                          </span>
                           <span style={{ marginRight: '20px', color: '#8b5cf6' }}>
                             <span style={{ 
                               display: 'inline-block', 
@@ -183,7 +217,7 @@ function App() {
                               marginRight: '5px',
                               verticalAlign: 'middle'
                             }}></span>
-                            Humidity: {co2Data.humidityRh}%
+                            Humidity (%)
                           </span>
                           <span style={{ color: '#06b6d4' }}>
                             <span style={{ 
@@ -194,13 +228,23 @@ function App() {
                               marginRight: '5px',
                               verticalAlign: 'middle'
                             }}></span>
-                            CO2: {co2Data.co2Ppm} ppm
+                            CO2 (ppm)
                           </span>
                         </>
                       )}
                     </div>
                   );
                 }}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="temperature" 
+                stroke="#ff7300" 
+                name="Temperature (°C)"
+                strokeWidth={2}
+                connectNulls={true}
+                dot={{ r: 3 }}
+                activeDot={{ r: 6 }}
               />
               <Line 
                 type="monotone" 
@@ -218,7 +262,42 @@ function App() {
         <div className="control-section">
           <div className="setpoint-control">
             <h2>Temperature Setpoint</h2>
-            <p>Current Setpoint: {thermostatData.setPoint}°C</p>
+            <div className="stepper-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px' }}>
+              <button 
+                onClick={() => handleSetpointChange(-0.5)}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  backgroundColor: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderRadius: '5px'
+                }}
+              >
+                -
+              </button>
+              
+              <div style={{ textAlign: 'center' }}>
+                <span style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                  {Number(thermostatData.setPoint).toFixed(1)}°C
+                </span>
+                <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#666' }}>Target</p>
+              </div>
+
+              <button 
+                onClick={() => handleSetpointChange(0.5)}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  backgroundColor: '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderRadius: '5px'
+                }}
+              >
+                +
+              </button>
+            </div>
           </div>
 
           <div className="led-indicators">
@@ -246,9 +325,9 @@ function App() {
                 <div 
                   className="led-circle"
                   style={{ 
-                    backgroundColor: doorData?.doorOpen ? '#4444ff' : '#22c55e',
+                    backgroundColor: doorData?.doorOpen ? '#22c55e' : '#ff4444',
                     border: '3px solid black',
-                    boxShadow: doorData?.doorOpen ? '0 0 20px rgba(68, 68, 255, 0.8)' : '0 0 20px rgba(34, 197, 94, 0.8)'
+                    boxShadow: doorData?.doorOpen ? '0 0 20px rgba(34, 197, 94, 0.8)' : '0 0 20px rgba(255, 68, 68, 0.8)'
                   }}
                 />
                 <p>Door</p>
